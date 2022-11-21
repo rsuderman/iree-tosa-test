@@ -1,0 +1,6 @@
+[submodule "third_party/conformance_tests"]
+	path = third_party/conformance_tests
+	url = https://git.mlplatform.org/tosa/conformance_tests.git
+[submodule "third_party/reference_model"]
+	path = third_party/reference_model
+	url = https://git.mlplatform.org/tosa/reference_model.git
