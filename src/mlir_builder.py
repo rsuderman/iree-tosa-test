@@ -1,7 +1,6 @@
 class Tensor:
 
-    def __init__(self, name, tensor_type):
-        self._name = name
+    def __init__(self, tensor_type):
         self._type = tensor_type
         self._ssa = None
         self._value = None
@@ -28,7 +27,7 @@ class Tensor:
         self._value = value
 
     def __str__(self):
-        return f"{self._name} : {self._type}"
+        return f"{self._type}"
 
     def ssa(self):
         return self._ssa
@@ -94,47 +93,42 @@ class Operator:
 
 class Block:
 
-    def __init__(self, inputs, outputs):
-        self._inputs = inputs
-        self._outputs = outputs
-        self._tensors = {}
+    def __init__(self):
+        self._inputs = []
+        self._outputs = []
+        self._tensors = []
         self._operators = []
+        self._terminator = None
 
     def add_operator(self, opname, inputs, outputs, attributes):
-        inputs = self.get_tensors(inputs)
-        outputs = self.get_tensors(outputs)
+        inputs = inputs
+        outputs = outputs
         operator = Operator(opname, inputs, outputs, attributes)
         self._operators.append(operator)
 
-    def add_tensor(self, name, shape, mlir_type, value=None):
-        if name in self._tensors:
-            raise Exception(f"Tensor '{name}' already declared")
+    def add_terminator(self, opname, inputs):
+        self._terminator = Return(opname, inputs)
 
+    def add_input(self, input):
+        self._inputs.append(input)
+
+    def add_output(self, output):
+        self._outputs.append(output)
+
+    def add_tensor(self, shape, mlir_type, value=None):
         tensor_type = TensorType(shape, mlir_type)
-        tensor = Tensor(name, tensor_type)
+        tensor = Tensor(tensor_type)
         tensor.register_ssa(f"%{str(len(self._tensors))}")
         if value is not None:
             tensor.set_value(value)
-        self._tensors[name] = tensor
+        self._tensors.append(tensor)
         return tensor
 
-    def get_tensor(self, name):
-        if isinstance(name, Tensor):
-            return name
-
-        try:
-            return self._tensors[name]
-        except:
-            raise Exception("Tensor not known {name}")
-
-    def get_tensors(self, names):
-        return [self.get_tensor(name) for name in names]
-
     def get_inputs(self):
-        return self.get_tensors(self._inputs)
+        return self._inputs
 
     def get_outputs(self):
-        return self.get_tensors(self._outputs)
+        return self._outputs
 
     def print_tensors(self):
         for a in self._tensors:
@@ -146,10 +140,8 @@ class Block:
         for operator in self._operators:
             ops.append(str(operator))
 
-        return_op = Return("func.return", self.get_tensors(self._outputs))
-        ops.append(str(return_op))
-
-        # TODO: Insert return operator
+        if (self._terminator is not None):
+            ops.append(str(self._terminator))
 
         ops.append("}")
         return "\n".join(ops)
@@ -157,15 +149,15 @@ class Block:
 
 class Func:
 
-    def __init__(self, name, inputs, outputs):
+    def __init__(self, name, block):
         self._name = name
-        self._block = Block(inputs, outputs)
+        self._block = block
 
-    def add_tensor(self, name, shape, mlir_type, value=None):
-        return self._block.add_tensor(name, shape, mlir_type, value)
+    def add_tensor(self, shape, mlir_type, value=None):
+        return self._block.add_tensor(shape, mlir_type, value)
 
-    def get_tensor(self, name):
-        return self._block.get_tensor(name)
+    # def get_tensor(self, name):
+    #     return self._block.get_tensor(name)
 
     def block(self):
         return self._block
@@ -189,11 +181,14 @@ class MlirModule:
     def __init__(self):
         self._funcs = {}
 
-    def func(self, name, inputs, outputs):
+    def block(self):
+        return Block()
+
+    def func(self, name, block):
         if name in self._funcs:
             raise Exception(f"Attempted to duplicate func: {name}")
 
-        func = Func(name, inputs, outputs)
+        func = Func(name, block)
         self._funcs[name] = func
         return func
 

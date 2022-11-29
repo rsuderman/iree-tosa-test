@@ -27,25 +27,23 @@ def _get_mlir_type(tosa_type):
         raise Exception(f"unknown tosa type - {tosa_type}")
 
 
-def _build_const_op(func, tensor):
+def _build_const_op(block, tensor):
     attribute = tosa_attr_builder.getConstAttribute([tensor])
     opname = tosa_attr_builder.get_tosa_mlir_opname("CONST")
-    func.block().add_operator(opname, [], [tensor], attribute)
+    block.add_operator(opname, [], [tensor], attribute)
 
 
-def _build_tensor_const(func, tensor, etype="i32", shape=None):
+def _build_tensor_const(block, tensor, etype="i32", shape=None):
     if shape is None:
         shape = [len(tensor)] if isinstance(tensor, list) else []
 
-    name = "<attribute-embedded>"
-
     value = tensor_loader.Tensor()
     value.load_json_str(tensor, etype, shape)
-    tensor = func.add_tensor(name, shape, etype, value)
+    tensor = block.add_tensor(shape, etype, value)
     return tensor
 
 
-def _build_extra_inputs(func, operator):
+def _build_extra_inputs(block, operator, tensor_map):
     extra_inputs = []
     if "attribute" not in operator:
         return extra_inputs
@@ -57,24 +55,24 @@ def _build_extra_inputs(func, operator):
 
         if attribute_type == "TransposeAttribute":
             perms = attribute["perms"]
-            perms = _build_tensor_const(func, perms, "i32")
+            perms = _build_tensor_const(block, perms, "i32")
             extra_inputs.append(perms)
 
         if attribute_type == "TableAttribute":
-            etype = func.get_tensor(inputs[0]).mlir_type().element_type()
+            etype = tensor_map[inputs[0]].mlir_type().element_type()
             table = attribute["table"]
-            table = _build_tensor_const(func, table, etype)
+            table = _build_tensor_const(block, table, etype)
             extra_inputs.append(table)
 
         if attribute_type == "PadAttribute":
             padding = attribute["padding"]
             shape = [len(padding) // 2, 2]
-            padding = _build_tensor_const(func, padding, "i32", shape)
+            padding = _build_tensor_const(block, padding, "i32", shape)
             extra_inputs.append(padding)
 
         # Add the const attr.
         if attribute_type == "PadAttribute":
-            tensor = func.get_tensor(inputs[0])
+            tensor = tensor_map[inputs[0]]
             mlir_type = tensor.mlir_type().element_type()
             numpy_type = tensor_loader.get_numpy_type(mlir_type)
 
@@ -87,8 +85,7 @@ def _build_extra_inputs(func, operator):
             value = tensor_loader.Tensor()
             value.load_npy(pad_const)
 
-            tensor = func.add_tensor("<pad-attr>", value.shape(), mlir_type,
-                                     value)
+            tensor = block.add_tensor(value.shape(), mlir_type, value)
             extra_inputs.append(tensor)
 
     except Exception as e:
@@ -96,7 +93,7 @@ def _build_extra_inputs(func, operator):
 
     tensors = []
     for tensor in extra_inputs:
-        _build_const_op(func, tensor)
+        _build_const_op(block, tensor)
         tensors.append(tensor)
 
     return tensors
@@ -112,11 +109,11 @@ def _build_func_from_tosa(module, dictionary):
     except Exception as e:
         raise Exception("Block dictionary missing required keys")
 
-    func = module.func(name, inputs, outputs)
-
+    block = module.block()
+    tensor_map = {}
     for tensor in tensors:
         try:
-            name = tensor["name"]
+            argname = tensor["name"]
             shape = tensor["shape"]
             tosa_type = tensor["type"]
         except Exception as e:
@@ -129,24 +126,31 @@ def _build_func_from_tosa(module, dictionary):
             value = tensor_loader.Tensor()
             value.load_bytes(data, tosa_type, shape)
 
-        func.add_tensor(name, shape, mlir_type, value)
+        tensor_map[argname] = block.add_tensor(shape, mlir_type, value)
+
+    [block.add_input(tensor_map[tensor]) for tensor in inputs]
+    [block.add_output(tensor_map[tensor]) for tensor in outputs]
 
     for operator in operators:
         try:
             op = operator["op"]
-            inputs = operator["inputs"]
-            outputs = operator["outputs"]
+            inputs = [tensor_map[arg] for arg in operator["inputs"]]
+            outputs = [tensor_map[arg] for arg in operator["outputs"]]
             attribute_type = operator["attribute_type"]
         except Exception as e:
             raise Exception("Operator dictionary missing required keys")
 
-        inputs += _build_extra_inputs(func, operator)
+        inputs += _build_extra_inputs(block, operator, tensor_map)
 
-        tensors = func.block().get_tensors(inputs + outputs)
+        tensors = inputs + outputs
         attribute = tosa_attr_builder.get_tosa_mlir_attribute(
             op, attribute_type, operator, tensors)
         opname = tosa_attr_builder.get_tosa_mlir_opname(op)
-        func.block().add_operator(opname, inputs, outputs, attribute)
+        block.add_operator(opname, inputs, outputs, attribute)
+
+    block.add_terminator("func.return", outputs)
+
+    func = module.func(name, block)
 
 
 # Constructs a module from a provided tosa dictionary
