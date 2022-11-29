@@ -62,6 +62,10 @@ tosa_name_converter = {
     "REDUCE_MIN": "tosa.reduce_min",
     "REDUCE_SUM": "tosa.reduce_sum",
 
+    # Scatter Gather Operators
+    "GATHER": "tosa.gather",
+    "SCATTER": "tosa.scatter",
+
     # Tensor Operators
     "ARGMAX": "tosa.argmax",
     "AVG_POOL2D": "tosa.avg_pool2d",
