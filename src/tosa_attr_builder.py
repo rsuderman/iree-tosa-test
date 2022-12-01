@@ -5,6 +5,10 @@ tosa_name_converter = {
     "CONST": "tosa.const",
     "IDENTITY": "tosa.identity",
 
+    # Control Flow
+    "WHILE_LOOP": "tosa.while_loop",
+    "COND_IF": "tosa.cond_if",
+
     # Data Layout
     "CONCAT": "tosa.concat",
     "PAD": "tosa.pad",
@@ -281,6 +285,36 @@ def getTileAttribute(dictionary):
         raise Exception(f"Failed to parse TileAttribute")
 
 
+def getCondIfBlocks(dictionary):
+    try:
+        attribute = dictionary['attribute']
+        then_block = attribute["then_branch"]
+        else_block = attribute["else_branch"]
+        return [then_block, else_block]
+    except Exception as e:
+        raise Exception(f"Failed to parse WhileAttribute")
+
+
+def getWhileBlocks(dictionary):
+    try:
+        attribute = dictionary['attribute']
+        cond_block = attribute["cond_branch"]
+        body_block = attribute["body_branch"]
+        return [cond_block, body_block]
+    except Exception as e:
+        raise Exception(f"Failed to parse WhileAttribute")
+
+
+def get_tosa_mlir_blocks(attribute_type, dictionary):
+    if (attribute_type == "CondIfAttribute"):
+        return getCondIfBlocks(dictionary)
+
+    if (attribute_type == "WhileLoopAttribute"):
+        return getWhileBlocks(dictionary)
+
+    return []
+
+
 def get_tosa_mlir_attribute(opname, attribute_type, dictionary, tensors):
     if (opname == "CONST"):
         return getConstAttribute(tensors)
@@ -335,6 +369,10 @@ def get_tosa_mlir_attribute(opname, attribute_type, dictionary, tensors):
 
     if (attribute_type == "TileAttribute"):
         return getTileAttribute(dictionary)
+
+    if (attribute_type == "WhileLoopAttribute"
+            or attribute_type == "CondIfAttribute"):
+        return ""
 
     # This one is special as its serialized as an extra constant earlier
     if (attribute_type == "TransposeAttribute"):

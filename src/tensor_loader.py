@@ -97,9 +97,12 @@ def parse_dtypes(path, tensor_type):
 
     try:
         dtype_map = {}
+        shape_map = {}
         for tensor in tensors:
             dtype_map[tensor["name"]] = get_numpy_type(tensor["type"])
+            shape_map[tensor["name"]] = tensor["shape"]
     except Exception as e:
         raise Exception(f"Unable to expand dtype: {e}")
 
-    return [dtype_map[name] for name in names]
+    return [dtype_map[name]
+            for name in names], [shape_map[name] for name in names]

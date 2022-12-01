@@ -120,22 +120,26 @@ class TestCase:
 
     def load_tensors(self):
         # We have to use the dtypes from the TOSA file.
-        input_dtypes = tensor_loader.parse_dtypes(self._tosa_file, "inputs")
-        output_dtypes = tensor_loader.parse_dtypes(self._tosa_file, "outputs")
+        input_dtypes, input_shapes = tensor_loader.parse_dtypes(
+            self._tosa_file, "inputs")
+        output_dtypes, output_shapes = tensor_loader.parse_dtypes(
+            self._tosa_file, "outputs")
 
         inputs = []
-        for path, dtype in zip(self._inputs, input_dtypes):
+        for path, dtype, shape in zip(self._inputs, input_dtypes,
+                                      input_shapes):
             tensor = tensor_loader.Tensor()
             tensor.load_json(path)
-            npy = tensor.npy().astype(dtype)
+            npy = tensor.npy().astype(dtype).reshape(shape)
             inputs.append(npy)
 
         outputs = []
-        for path, dtype in zip(self._outputs, output_dtypes):
+        for path, dtype, shape in zip(self._outputs, output_dtypes,
+                                      output_shapes):
             path, _ = os.path.splitext(path)
             tensor = tensor_loader.Tensor()
             tensor.load_json(path)
-            npy = tensor.npy().astype(dtype)
+            npy = tensor.npy().astype(dtype).reshape(shape)
             outputs.append(npy)
         return inputs, outputs
 

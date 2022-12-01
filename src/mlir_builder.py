@@ -30,6 +30,8 @@ class Tensor:
         return f"{self._type}"
 
     def ssa(self):
+        if self._ssa is None:
+            raise Exception("SSA unassigned")
         return self._ssa
 
     def decl(self):
@@ -61,34 +63,66 @@ class Return:
         self._inputs = inputs
 
     def __str__(self):
+        return self.serialize_ir()
+
+    def serialize_ir(self, indent=""):
         args = ", ".join([str(tensor.ssa()) for tensor in self._inputs])
         arg_types = ", ".join(
             [str(tensor.mlir_type()) for tensor in self._inputs])
-        return f"  {self._name} {args} : {arg_types}"
+        return f'{indent}"{self._name}" ({args}) : ({arg_types}) -> ()'
 
 
 class Operator:
 
-    def __init__(self, name, inputs, outputs, attributes):
+    def __init__(self, name, inputs, outputs, attributes, blocks):
         self._name = name
         self._inputs = inputs
         self._outputs = outputs
         self._attributes = attributes
+        self._blocks = blocks
+
+    def name(self):
+        return self._name
+
+    def blocks(self):
+        return self._blocks
+
+    def results(self):
+        return self._outputs
 
     def __str__(self):
+        return self.serialize_ir()
+
+    def serialize_ir(self, indent=""):
         args = ", ".join([tensor.ssa() for tensor in self._inputs])
         arg_types = ", ".join(
             [str(tensor.mlir_type()) for tensor in self._inputs])
         ret_types = ", ".join(
             [str(tensor.mlir_type()) for tensor in self._outputs])
 
-        if len(self._outputs) != 1:
-            raise Exception("Error : Multiple returns not yet support")
+        ret = ""
+        ssas = [output.ssa() for output in self._outputs]
 
-        ret = self._outputs[0].ssa()
+        block_attr = ""
+        if self._blocks:
+            block_attr = ", ".join(
+                [b.serialize_ir(indent + "  ") for b in self._blocks])
+            block_attr = "(%s)" % block_attr
+
+        if len(ssas) == 1:
+            ret = f"{ssas[0]} = "
+        elif len(ssas) > 1:
+            base_ssa = self._outputs[0].ssa().split("#")[0]
+            for ssa in ssas:
+                ssa = ssa.split("#")[0]
+                if ssa != base_ssa:
+                    print(ssa, base_ssa)
+                    raise Exception("Non matching SSA group values")
+
+            ret = f"{base_ssa}:{len(self._outputs)} = "
 
         attrs = str(self._attributes)
-        return f"  {ret} = {self._name}({args}) {self._attributes} : ({arg_types}) -> ({ret_types})"
+        return f"{indent}{ret} {self._name}({args}) {block_attr} {self._attributes} : ({arg_types}) -> ({ret_types})"
 
 
 class Block:
@@ -99,12 +133,14 @@ class Block:
         self._tensors = []
         self._operators = []
         self._terminator = None
+        self._ssa_count = 0
 
-    def add_operator(self, opname, inputs, outputs, attributes):
+    def add_operator(self, opname, inputs, outputs, attributes, blocks):
         inputs = inputs
         outputs = outputs
-        operator = Operator(opname, inputs, outputs, attributes)
+        operator = Operator(opname, inputs, outputs, attributes, blocks)
         self._operators.append(operator)
+        return operator
 
     def add_terminator(self, opname, inputs):
         self._terminator = Return(opname, inputs)
@@ -118,7 +154,6 @@ class Block:
     def add_tensor(self, shape, mlir_type, value=None):
         tensor_type = TensorType(shape, mlir_type)
         tensor = Tensor(tensor_type)
-        tensor.register_ssa(f"%{str(len(self._tensors))}")
         if value is not None:
             tensor.set_value(value)
         self._tensors.append(tensor)
@@ -130,21 +165,70 @@ class Block:
     def get_outputs(self):
         return self._outputs
 
+    def set_ssas(self, allocator):
+        for tensor in self._inputs:
+            tensor.register_ssa(allocator.arg_ssa())
+
+        for operator in self._operators:
+            results = operator.results()
+            ssas = allocator.value_ssas(len(results))
+            for tensor, ssa in zip(results, ssas):
+                tensor.register_ssa(ssa)
+            for block in operator.blocks():
+                block.set_ssas(allocator.copy())
+
     def print_tensors(self):
         for a in self._tensors:
             print(self._tensors[a])
 
-    def __str__(self):
+    def serialize_ir(self, indent="", include_block_header=True):
         ops = [" {"]
 
+        if (include_block_header):
+            block_args = ", ".join([
+                f"{tensor.ssa()} : {tensor.mlir_type()}"
+                for tensor in self._inputs
+            ])
+            ops.append(f"{indent}^bb0({block_args}):")
+
         for operator in self._operators:
-            ops.append(str(operator))
+            ops.append(operator.serialize_ir(f"  {indent}"))
 
         if (self._terminator is not None):
-            ops.append(str(self._terminator))
+            ops.append(self._terminator.serialize_ir(f"  {indent}"))
 
-        ops.append("}")
+        ops.append(indent + "}")
         return "\n".join(ops)
+
+    def __str__(self):
+        return self.serialize_ir()
+
+
+class IdAllocator:
+
+    def __init__(self, arg_ssa=0, value_ssa=0):
+        self._arg_ssa = arg_ssa
+        self._value_ssa = value_ssa
+
+    def copy(self):
+        return IdAllocator(self._arg_ssa, self._value_ssa)
+
+    def arg_ssa(self):
+        ssa = f'%arg{self._arg_ssa}'
+        self._arg_ssa += 1
+        return ssa
+
+    def value_ssa(self):
+        return self.value_ssas(1)[0]
+
+    def value_ssas(self, count):
+        if count == 0:
+            return []
+        ssa = self._value_ssa
+        self._value_ssa = self._value_ssa + 1
+        if count == 1:
+            return [f"%{ssa}"]
+        return [f"%{ssa}#{i}" for i in range(count)]
 
 
 class Func:
@@ -156,11 +240,11 @@ class Func:
     def add_tensor(self, shape, mlir_type, value=None):
         return self._block.add_tensor(shape, mlir_type, value)
 
-    # def get_tensor(self, name):
-    #     return self._block.get_tensor(name)
-
     def block(self):
         return self._block
+
+    def set_ssas(self):
+        self._block.set_ssas(IdAllocator())
 
     def _func_def(self):
         name = self._name
@@ -172,7 +256,7 @@ class Func:
 
     def __str__(self):
         func_def = self._func_def()
-        block = str(self._block)
+        block = self._block.serialize_ir("", include_block_header=False)
         return f"{func_def}{block}"
 
 
@@ -189,6 +273,7 @@ class MlirModule:
             raise Exception(f"Attempted to duplicate func: {name}")
 
         func = Func(name, block)
+        func.set_ssas()
         self._funcs[name] = func
         return func
 

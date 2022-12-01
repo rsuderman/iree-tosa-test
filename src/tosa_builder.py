@@ -30,7 +30,7 @@ def _get_mlir_type(tosa_type):
 def _build_const_op(block, tensor):
     attribute = tosa_attr_builder.getConstAttribute([tensor])
     opname = tosa_attr_builder.get_tosa_mlir_opname("CONST")
-    block.add_operator(opname, [], [tensor], attribute)
+    block.add_operator(opname, [], [tensor], attribute, {})
 
 
 def _build_tensor_const(block, tensor, etype="i32", shape=None):
@@ -99,7 +99,7 @@ def _build_extra_inputs(block, operator, tensor_map):
     return tensors
 
 
-def _build_func_from_tosa(module, dictionary):
+def _build_block_from_tosa(block, dictionary, block_map):
     try:
         name = dictionary["name"]
         inputs = dictionary["inputs"]
@@ -109,7 +109,6 @@ def _build_func_from_tosa(module, dictionary):
     except Exception as e:
         raise Exception("Block dictionary missing required keys")
 
-    block = module.block()
     tensor_map = {}
     for tensor in tensors:
         try:
@@ -134,23 +133,31 @@ def _build_func_from_tosa(module, dictionary):
     for operator in operators:
         try:
             op = operator["op"]
-            inputs = [tensor_map[arg] for arg in operator["inputs"]]
-            outputs = [tensor_map[arg] for arg in operator["outputs"]]
+            args = [tensor_map[arg] for arg in operator["inputs"]]
+            rets = [tensor_map[arg] for arg in operator["outputs"]]
             attribute_type = operator["attribute_type"]
         except Exception as e:
             raise Exception("Operator dictionary missing required keys")
 
-        inputs += _build_extra_inputs(block, operator, tensor_map)
+        args += _build_extra_inputs(block, operator, tensor_map)
 
-        tensors = inputs + outputs
+        tensors = args + rets
         attribute = tosa_attr_builder.get_tosa_mlir_attribute(
             op, attribute_type, operator, tensors)
+        blocks = tosa_attr_builder.get_tosa_mlir_blocks(
+            attribute_type, operator)
+        blocks = [block_map[bn] for bn in blocks]
+
         opname = tosa_attr_builder.get_tosa_mlir_opname(op)
-        block.add_operator(opname, inputs, outputs, attribute)
 
-    block.add_terminator("func.return", outputs)
+        new_op = block.add_operator(opname, args, rets, attribute, blocks)
 
-    func = module.func(name, block)
+    outputs = [tensor_map[output] for output in outputs]
+    if name == "main":
+        block.add_terminator("func.return", outputs)
+    else:
+        block.add_terminator("tosa.yield", outputs)
+    return block
 
 
 # Constructs a module from a provided tosa dictionary
@@ -162,9 +169,16 @@ def build_from_tosa(dictionary):
         raise Exception("Block-dict missing 'blocks'")
 
     try:
+        block_map = {block["name"]: module.block() for block in blocks}
         for block in blocks:
-            _build_func_from_tosa(module, block)
+            name = block["name"]
+            _build_block_from_tosa(block_map[name], block, block_map)
     except Exception as e:
         raise e
+
+    if "main" not in block_map:
+        raise Exception("No 'main' function found.")
+
+    module.func("main", block_map["main"])
 
     return module
