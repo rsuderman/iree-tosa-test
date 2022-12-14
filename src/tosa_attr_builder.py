@@ -79,6 +79,7 @@ tosa_name_converter = {
     "MATMUL": "tosa.matmul",
     "CONV2D": "tosa.conv2d",
     "CONV3D": "tosa.conv3d",
+    "TRANSPOSE_CONV2D": "tosa.transpose_conv2d",
 }
 
 
@@ -203,8 +204,28 @@ def getConvAttribute(dictionary):
         attr = ", ".join([f"{a} = {attr_dict[a]}" for a in attr_dict])
         return "{%s}" % attr
     except Exception as e:
-        raise Exception(f"Failed to parse FullyConnectedAttribute")
+        raise Exception(f"Failed to parse ConvAttribute")
 
+def getTransposeConvAttribute(dictionary):
+    try:
+        attribute = dictionary['attribute']
+        attr_dict = {
+            "out_pad": attribute["out_pad"],
+            "out_shape": attribute["output_shape"],
+            "stride": attribute["stride"],
+        }
+
+        if "input_zp" in attribute:
+            input_zp = str(attribute["input_zp"])
+            weight_zp = str(attribute["weight_zp"])
+            qattr = f"#tosa.conv_quant<input_zp = {input_zp}, weight_zp = {weight_zp}>"
+            attr_dict["quantization_info"] = qattr
+
+        attr = ", ".join([f"{a} = {attr_dict[a]}" for a in attr_dict])
+        return "{%s}" % attr
+    except Exception as e:
+        print(e)
+        raise Exception(f"Failed to parse TransposeConvAttribute")
 
 def getMatMulConnectedAttribute(dictionary):
     try:
@@ -369,6 +390,9 @@ def get_tosa_mlir_attribute(opname, attribute_type, dictionary, tensors):
 
     if (attribute_type == "TileAttribute"):
         return getTileAttribute(dictionary)
+
+    if (attribute_type == "TransposeConvAttribute"):
+        return getTransposeConvAttribute(dictionary)
 
     if (attribute_type == "WhileLoopAttribute"
             or attribute_type == "CondIfAttribute"):

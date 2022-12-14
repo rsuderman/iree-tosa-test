@@ -42,7 +42,7 @@ class Tensor:
 
     def load_bytes(self, data, dtype, shape):
         dtype = get_numpy_type(dtype)
-        data = numpy.asarray(data).astype(numpy.int8)
+        data = numpy.asarray(data).astype(numpy.uint8)
         data = data.tobytes()
         self._npy = numpy.frombuffer(data, dtype=dtype)
         self._npy = numpy.reshape(self._npy, shape)
