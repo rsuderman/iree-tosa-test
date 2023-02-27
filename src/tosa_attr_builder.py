@@ -88,6 +88,11 @@ def get_tosa_mlir_opname(name):
         return f"\"{tosa_name_converter[name]}\""
     raise Exception(f"Unknown tosa op name {name}")
 
+def get_i32_dense_array_attr(val):
+    return "array<i32: %s>" % ", ".join(str(x) for x in val)
+
+def get_i64_dense_array_attr(val):
+    return "array<i64: %s>" % ", ".join(str(x) for x in val)
 
 def getArithmeticRightShiftAttribute(dictionary):
     try:
@@ -157,9 +162,9 @@ def getPoolAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
         attr_dict = {
-            "kernel": str(attribute['kernel']),
-            "pad": str(attribute['pad']),
-            "stride": str(attribute['stride']),
+            "kernel":  get_i64_dense_array_attr(attribute['kernel']),
+            "pad": get_i64_dense_array_attr(attribute['pad']),
+            "stride": get_i64_dense_array_attr(attribute['stride']),
         }
 
         if "input_zp" in attribute:
@@ -190,9 +195,9 @@ def getConvAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
         attr_dict = {
-            "stride": attribute["stride"],
-            "dilation": attribute["dilation"],
-            "pad": attribute["pad"],
+            "stride": get_i64_dense_array_attr(attribute["stride"]),
+            "dilation": get_i64_dense_array_attr(attribute["dilation"]),
+            "pad": get_i64_dense_array_attr(attribute["pad"]),
         }
 
         if "input_zp" in attribute:
@@ -210,9 +215,9 @@ def getTransposeConvAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
         attr_dict = {
-            "out_pad": attribute["out_pad"],
-            "out_shape": attribute["output_shape"],
-            "stride": attribute["stride"],
+            "out_pad": get_i64_dense_array_attr(attribute["out_pad"]),
+            "out_shape": get_i64_dense_array_attr(attribute["output_shape"]),
+            "stride": get_i64_dense_array_attr(attribute["stride"]),
         }
 
         if "input_zp" in attribute:
@@ -250,11 +255,11 @@ def getRescaleAttribute(dictionary):
         attributes.append("per_channel = %s" %
                           str(attribute["per_channel"]).lower())
 
-        multiplier = ", ".join([f"{m} : i32" for m in attribute["multiplier"]])
-        attributes.append(f"multiplier = [{multiplier}]")
+        multiplier = attribute["multiplier"]
+        attributes.append(f"multiplier = {get_i32_dense_array_attr(multiplier)}")
 
-        shift = ", ".join(["%i : i32" % m for m in attribute["shift"]])
-        attributes.append(f"shift = [{shift}]")
+        shift = attribute["shift"]
+        attributes.append(f"shift = {get_i32_dense_array_attr(shift)}")
         attributes = "{%s}" % ", ".join(attributes)
         return attributes
     except Exception as e:
@@ -265,7 +270,7 @@ def getReshapeAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
         new_shape = attribute['new_shape']
-        return "{new_shape = %s}" % str(new_shape)
+        return "{new_shape = %s}" % get_i64_dense_array_attr(new_shape)
     except Exception as e:
         raise Exception(f"Failed to parse ReshapeAttribute")
 
@@ -276,9 +281,9 @@ def getResizeAttribute(dictionary):
         mode = attribute['mode']
         mode = "NEAREST_NEIGHBOR" if mode == "NEAREST" else mode
         attr_dict = {
-            "scale": str(attribute["scale"]),
-            "offset": str(attribute["offset"]),
-            "border": str(attribute["border"]),
+            "scale": get_i64_dense_array_attr(attribute["scale"]),
+            "offset": get_i64_dense_array_attr(attribute["offset"]),
+            "border": get_i64_dense_array_attr(attribute["border"]),
             "mode": '"%s"' % mode
         }
         attrs = ", ".join(f"{a} = {attr_dict[a]}" for a in attr_dict)
@@ -290,8 +295,8 @@ def getResizeAttribute(dictionary):
 def getSliceAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
-        start = str(attribute['start'])
-        size = str(attribute['size'])
+        start = get_i64_dense_array_attr(attribute['start'])
+        size = get_i64_dense_array_attr(attribute['size'])
         return "{start = %s, size = %s}" % (start, size)
     except Exception as e:
         raise Exception(f"Failed to parse SliceAttribute")
@@ -300,7 +305,7 @@ def getSliceAttribute(dictionary):
 def getTileAttribute(dictionary):
     try:
         attribute = dictionary['attribute']
-        multiples = str(attribute['multiples'])
+        multiples = get_i64_dense_array_attr(attribute['multiples'])
         return "{multiples = %s}" % multiples
     except Exception as e:
         raise Exception(f"Failed to parse TileAttribute")

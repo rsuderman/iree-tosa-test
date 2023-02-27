@@ -11,27 +11,29 @@ from test_case import TestCase
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('testsuite_dir', None, "Test suite directory")
-flags.DEFINE_string('group', None, "Filter group")
-flags.DEFINE_string('operator', None, "Filter operator")
-flags.DEFINE_string('test', None, "Filter test")
 flags.DEFINE_string('output', "/tmp/details.txt", "Output location")
+
+flags.DEFINE_list('group', [], "Filter group")
+flags.DEFINE_list('operator', [], "Filter operator")
+flags.DEFINE_list('test', [], "Filter test")
 
 flags.DEFINE_bool('include_error', False, "Include error tests")
 
 
-def AddAllSubfolders(directory, include=None, exclude=None):
+def AddAllSubfolders(directory, match=None):
+
     if isinstance(directory, list) or isinstance(directory, set):
         ret = set()
         for d in directory:
-            ret = ret.union(AddAllSubfolders(d, include, exclude))
+            ret = ret.union(AddAllSubfolders(d, match))
         return ret
 
-    lst = os.listdir(directory)
-    if include is not None:
-        lst = [f for f in lst if include in f]
+    includes = [ex for ex in match if ex[0] != '-']
+    excludes = [ex[1:] for ex in match if ex[0] == '-']
 
-    if exclude is not None:
-        lst = [f for f in lst if exclude not in f]
+    lst = os.listdir(directory)
+    lst = [f for f in lst if ((any([include in f for include in includes]) or len(includes) == 0))]
+    lst = [f for f in lst if (all([exclude not in f for exclude in excludes]))]
 
     ret = set()
     for f in lst:
@@ -87,10 +89,9 @@ def main(argv):
     groups = AddAllSubfolders(testsuite_dir, FLAGS.group)
     operators = AddAllSubfolders(groups, FLAGS.operator)
 
-    exclude_check = None if FLAGS.include_error else "ERRORIF"
+    exclude_check = [] if FLAGS.include_error else ["-ERRORIF"]
     tests = AddAllSubfolders(operators,
-                             include=FLAGS.test,
-                             exclude=exclude_check)
+                             FLAGS.test + exclude_check)
 
     results = runjobs(tests)
 

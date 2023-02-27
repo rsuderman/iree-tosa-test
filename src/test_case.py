@@ -180,21 +180,25 @@ class TestCase:
     def compare(self):
         errors = []
         for i, (a, b) in enumerate(zip(self._returned, self._expected)):
-            if a.dtype != b.dtype:
-                errors.append(f"mismatch in dtype ({i})")
-                continue
-
             if a.shape != b.shape:
                 errors.append(f"mismatch in shape ({i})")
                 continue
 
             if a.dtype == numpy.float:
                 # TODO(suderman): Probably do a relative comparison.
-                if (numpy.abs(a - b) > 1e-6):
+                if (numpy.abs(a - b.astype(a.dtype)) > 1e-6):
                     errors.append(f"mismatch in fp value ({i})")
             else:
-                if (numpy.any(a != b)):
+                if (numpy.any(a != b.astype(a.dtype))):
+                    # print(a.shape)
+                    # print(a[0, 1, 0, :])
+                    # print(b[0, 1, 0, :])
                     errors.append(f"mismatch in int value ({i})")
+
+            if a.dtype != b.dtype:
+                errors.append(f"mismatch in dtype ({i})")
+                continue
+
 
         if len(errors) > 0:
             status = Status("Mismatch in results")
